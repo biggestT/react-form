@@ -15,7 +15,7 @@ var formMetaData = {
         regexp: '^[0-9]{6,8}[-|(s)]{0,1}[0-9]{4}$',
         message: 'Ange personnummer på formatet ÅÅÅÅMMDDXXXX'
       },{
-        regexp: '^.{10-13}$',
+        regexp: '^.{10,13}$',
         message: 'Personnummret måste vara mellan 10 och 13 tecken långt'
       }
     ]
@@ -29,10 +29,38 @@ var formMetaData = {
   }]
 };
 
+var inputStates = {
+  PRISTINE: 0,
+  UNKNOWN: 1,
+  WRONG: 2,
+  CORRECT: 3
+};
+
+var userStates = {
+  OUTSIDE: 0,
+  INSIDE: 1,
+  TYPING: 2
+};
+
 var colors = {
-  info: 'rgb(154, 209, 75)',
+  neutral: 'rgb(200, 200, 200)',
+  info: 'rgb(100, 100, 200)',
+  correct: 'rgb(154, 209, 75)',
   danger: 'rgb(200, 0, 0)'
 };
+
+function getLineColor(input, user) {
+  switch(input) {
+  case inputStates.WRONG:
+    return colors.danger;
+  case inputStates.CORRECT:
+    return colors.correct;
+  case inputStates.UNKNOWN:
+    return colors.neutral;
+  default:
+    return colors.neutral
+  }
+}
 
 // FEEDBACK ELEMENT
 // ------------------
@@ -44,6 +72,7 @@ var InfoBar = React.createClass({
     var style = {
       fontSize: 10,
       color: 'rgb(200, 200, 200)',
+      height: 15,
       visibility: (this.props.visible) ? 'visible' : 'hidden',
     };
 
@@ -65,6 +94,8 @@ var InputField = React.createClass({
 
   handleChange: function (event) {
     this.setState({ value: event.target.value });
+    // propagate up to field
+    this.props.onChange();
   },
   
   render: function () {
@@ -75,6 +106,7 @@ var InputField = React.createClass({
       borderColor: 'transparent',
       fontSize: 20,
       padding: 10,
+      fontFamily: 'museo-sans',
       boxSizing: 'border-box' 
     };
 
@@ -99,72 +131,95 @@ var FormField = React.createClass({
 
   getInitialState: function() {
     return {
-      error: null,
-      inFocus: false
+      input: {
+        state: inputStates.PRISTINE,
+        message: null
+      },
+      user: userStates.OUTSIDE,
+      inputLength: 0
     };
   },
   
   blur: function (event) {
 
-    var error;
     var value =  this.refs.inputElement.refs.input.getDOMNode().value;
+
+    var newInputState = {
+      state: inputStates.CORRECT,
+      message: null
+    };
     
-    try {
-      this.props.patterns.forEach(function (pattern) {
-        var regexp = new RegExp(pattern.regexp);
-        error = null;
-        if (!regexp.test(value)) {
-          error = pattern.message;
-        }
-      });
-    } catch (err) {
-      error = null;
-    }
-
     if (value === '') {
-      error = this.props.requiredMessage + this.props.title;
+      newInputState = {
+        state: inputStates.WRONG,
+        message: this.props.requiredMessage + this.props.title
+      };
+    } else {
+      try {
+        this.props.patterns.forEach(function (pattern) {
+          var regexp = new RegExp(pattern.regexp);
+          if (!regexp.test(value)) {
+            newInputState = {
+              state: inputStates.WRONG,
+              message: pattern.message
+            };
+          }
+        });
+      } catch (err) {
+        newInputState.state = inputStates.CORRECT;
+      }
     }
 
+    // Update field
     this.setState({
-      inFocus: false,
-      error: error
+      user: userStates.OUTSIDE,
+      input: newInputState
     });
 
   },
 
   focus: function (event) {
     this.setState({
-      inFocus: true,
-      error: null
+      user: userStates.INSIDE,
+      input: {
+        state: inputStates.UNKNOWN,
+        message: this.props.help
+      }
+    });
+  },
+
+  typing: function (event) {
+    var newLength = this.refs.inputElement.refs.input.getDOMNode().value.length;
+    this.setState({
+      inputLength: newLength
     });
   },
   
   render: function () {
 
+    var userState = this.state.user;
+    var input = this.state.input;
+    
     var labelStyle = {
       color: 'rgb(0, 0, 0)',
       fontSize: 10,
       fontWeight: 'bold',
       display: 'none' // only need this when placeholder isn't supported
     };
-
-    var badgeType = (this.state.error) ? 'danger' : 'info';
-    var isBadgeVisible = this.state.inFocus || this.state.error;
-    
-    var badgeStyle = {
-      backgroundColor: colors[badgeType],
-      width: 3,
-      marginTop: 10,
-      height: 30,
-      left: 10,
-      visibility: (isBadgeVisible) ? 'visible' : 'hidden',
-      position: 'absolute'
+      
+    var lineStyle = {
+      backgroundColor: getLineColor(input.state),
+      width: 23+this.state.inputLength * 12,
+      marginBottom: 10,
+      borderRadius: 2,
+      height: 2,
+      left: 10
     };
-          
 
     var inputEl = React.createElement(InputField, {
       onBlur: this.blur,
       onFocus: this.focus,
+      onChange: this.typing,
       ref: 'inputElement',
       title: this.props.title,
       type: this.props.type
@@ -172,15 +227,14 @@ var FormField = React.createClass({
 
     var labelEl = React.createElement('p', {style: labelStyle}, this.props.title);
 
-    var badgeEl = React.createElement('div', {style: badgeStyle});
+    var lineEl = React.createElement('div', {style: lineStyle});
     
     var infoEl = React.createElement(InfoBar, {
-      visible: this.state.inFocus || this.state.error,
-      type: (this.state.error) ? 'danger' : 'info',
-      message: (this.state.inFocus) ? this.props.help : this.state.error || ''
+      visible: true,
+      message: input.message
     });
     
-    var fieldEl = React.createElement('div', null, [badgeEl, labelEl, inputEl, infoEl]);
+    var fieldEl = React.createElement('div', null, [labelEl, inputEl, lineEl, infoEl]);
     
     return fieldEl;
   }
